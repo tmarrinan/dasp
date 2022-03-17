@@ -4,8 +4,25 @@
         <meta charset="utf-8"/>
         <meta name="viewport" content="width=device-width, initial-scale=1"/>
         <title>DASP VR Viewer</title>
+        <link rel="stylesheet" href="css/style.css"/>
+        <script type="application/javascript" src="scripts/daspviewer.js"></script>
     </head>
-    <body>
-        
+    <body onload="init()">
+        <div id="instructions">
+            <h1>Instructions</h1>
+            <hr/>
+            <p class="bold">Keyboard Controls</p>
+            <ul>
+                <li><span class="mono">W: </span>move forward</li>
+                <li><span class="mono">S: </span>move backward</li>
+                <li><span class="mono">A: </span>move left</li>
+                <li><span class="mono">D: </span>move right</li>
+                <li><span class="mono">&larr;: </span>rotate left</li>
+                <li><span class="mono">&rarr;: </span>rotate right</li>
+            </ul>
+            <p class="bold">Virtual Reality</p>
+            <p>Click on the VR Headset icon in the bottom-right to enter immersive mode. If this icon is not shown, your device does not support virtual reality for this application.</p>
+        </div>
+        <canvas id="render"></canvas>
     </body>
 </html>

@@ -1,0 +1,61 @@
+* {
+    margin: 0 auto;
+}
+
+html {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 100%;
+}
+
+h1 {
+    font-size: 1.5rem;
+    font-weight: bold;
+    margin-bottom: 0.4rem;
+}
+
+p {
+    font-size: 1rem;
+    margin-bottom: 0.2rem;
+}
+
+ul {
+    margin-bottom: 0.5rem;
+}
+
+li {
+    font-size: 1rem;
+}
+
+hr {
+    height: 1px;
+    background-color: #333333;
+    border: none;
+    margin-bottom: 0.5rem;
+}
+
+#instructions {
+    position: absolute;
+    left: 1rem;
+    top: 1rem;
+    width: 20rem;
+    padding: 0.5rem;
+    background-color: #ECECEC;
+    z-index: 2;
+}
+
+#render {
+    position: absolute;
+    left: 0px;
+    top: 0px;
+    width: 100vw;
+    height: 100vh;
+    z-index: 1;
+}
+
+.bold {
+    font-weight: bold;
+}
+
+.mono {
+    font-family: monospace;
+}
