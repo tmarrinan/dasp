@@ -7,7 +7,26 @@ A virtual reality viewing application for DASP images (as described in [[1](http
 
 #### Rendering DASP Images in [Blender](https://www.blender.org/)
 
-Insert here.
+* Render Properties
+    * Render Engine: Cycles
+    * Device: GPU Compute *(optional)*
+        * May also want to select type of Cycles render device (e.g. OptiX vs. CUDA)
+        * Edit --> Preferences, select Systems tab, select desired option under Cycles Render Devices
+* Output Properties
+    * Format
+        * Ensure Resolution X and Y have a 2:1 ratio (e.g. 3840 px and 1920 px)
+    * Check Stereoscopy
+    * Views
+        * Views Format: Stereo 3D
+        * Stereo Mode: Top Bottom
+* Object Data Properties (with camera selected)
+    * Lens
+        * Type: Panoramic
+        * Panorama Type: Equirectangular
+    * Stereoscopy
+        * Mode: Parallel
+        * Interoculuar Distance: enter desired IPD + desired head motion diameter (e.g. for an IPD of 0.065 m and head motion diameter of 0.25 m, enter 0.315 m)
+        * Check Spherical Stereo
 
 #### References
 
