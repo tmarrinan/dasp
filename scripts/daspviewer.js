@@ -1,6 +1,7 @@
 let canvas;
 let gl;
 let app = {};
+const {mat4, vec3} = glMatrix;
 
 function init() {
     canvas = document.getElementById('render');
@@ -17,6 +18,8 @@ function init() {
     app.vertex_position_attrib = 0;
     app.vertex_texcoord_attrib = 1;
     app.vertex_depth_attrib = 2;
+    app.view_matrix = mat4.create();
+    app.projection_matrix = mat4.create();
     app.previous_time = 0;
     app.frame_count = 0;
     
@@ -69,6 +72,9 @@ function initializeGlApp() {
     // Load DASP image
     initializeDaspTexture('images/bloodflow_sample.jpg');
     
+    // Set projection matrix
+    mat4.perspective(app.projection_matrix, 60.0 * Math.PI / 180.0, canvas.width / canvas.height, 0.1, 1000.0);
+    
     app.previous_time = Date.now();
 }
 
@@ -76,7 +82,7 @@ function idle() {
     let now = Date.now();
     elapsed_time = now - app.previous_time;
     
-    if (elapsed_time >= 2000.0) {
+    if (elapsed_time >= 2000) {
         console.log('FPS:', 1000.0 *  app.frame_count / elapsed_time);
         app.previous_time = now;
         app.frame_count = 0;
@@ -94,6 +100,9 @@ function render() {
     
     if (app.points_vertex_array !== null) {
         gl.useProgram(app.glsl_programs['dasp'].program);
+        
+        gl.uniformMatrix4fv(app.glsl_programs['dasp'].uniforms.view_matrix, false, app.view_matrix);
+        gl.uniformMatrix4fv(app.glsl_programs['dasp'].uniforms.projection_matrix, false, app.projection_matrix);
         
         gl.bindVertexArray(app.points_vertex_array);
         gl.drawElements(gl.POINTS, app.dasp_resolution.width * app.dasp_resolution.height, gl.UNSIGNED_INT, 0);
@@ -265,6 +274,9 @@ function onResize() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
     gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+    
+    // Set projection matrix
+    mat4.perspective(app.projection_matrix, 60.0 * Math.PI / 180.0, canvas.width / canvas.height, 0.1, 1000.0);
 }
 
 function getTextFile(address) {
