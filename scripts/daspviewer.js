@@ -29,6 +29,15 @@ function init() {
     let texture_vs = getTextFile('shaders/texture.vert');
     let texture_fs = getTextFile('shaders/texture.frag');
     
+    /*
+    // TEST CODE for unzipping depth files
+    getDepthZip('images/depth_test.zip').then((data) => {
+        console.log(new Uint8Array(data));
+    }).catch((error) => {
+        console.log('Error getDepthZip():', error);
+    });
+    */
+    
     Promise.all([dasp_vs, dasp_fs, texture_vs, texture_fs])
     .then((shaders) => {
         let dasp_program = createShaderProgram(shaders[0], shaders[1]);
@@ -284,7 +293,7 @@ function getTextFile(address) {
         let req = new XMLHttpRequest();
         req.onreadystatechange = () => {
             if (req.readyState === 4 && req.status === 200) {
-                resolve(req.response);
+                resolve(req.responseText);
             }
             else if (req.readyState === 4) {
                 reject({url: req.responseURL, status: req.status});
@@ -292,5 +301,41 @@ function getTextFile(address) {
         };
         req.open('GET', address, true);
         req.send();
+    });
+}
+
+function getBinaryFile(address) {
+    return new Promise((resolve, reject) => {
+        let req = new XMLHttpRequest();
+        req.onreadystatechange = () => {
+            if (req.readyState === 4 && req.status === 200) {
+                resolve(req.response);
+            }
+            else if (req.readyState === 4) {
+                reject({url: req.responseURL, status: req.status});
+            }
+        };
+        req.open('GET', address, true);
+        req.responseType = 'arraybuffer';
+        req.send();
+    });
+}
+
+function getDepthZip(address) {
+    return new Promise((resolve, reject) => {
+        getBinaryFile(address).then((data) => {
+            JSZip.loadAsync(data).then((content) => {
+                let depth_file = Object.entries(content.files).filter((file_name) => {
+                   return file_name[0].endsWith('.depth');
+                });
+                content.file(depth_file[0][0]).async('arraybuffer').then((buffer) => {
+                    resolve(buffer);
+                }).catch((error) => {
+                    reject(error);
+                });
+            });
+        }).catch((error) => {
+            reject(error);
+        });
     });
 }
