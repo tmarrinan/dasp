@@ -30,14 +30,21 @@ function init() {
     let texture_vs = getTextFile('shaders/texture.vert');
     let texture_fs = getTextFile('shaders/texture.frag');
     
-    /*
+    
     // TEST CODE for unzipping depth files
-    getDepthZip('images/depth_test.zip').then((data) => {
+    getDepthExr('images/bloodflow_colordepth_L.exr').then((exr) => {
+        console.log(exr);
+    }).catch((error) => {
+        console.log('Error getDepthZip():', error);
+    });
+    /*
+    getDepthZip('images/Depth0001_L.exr').then((data) => {
         console.log(new Uint8Array(data));
     }).catch((error) => {
         console.log('Error getDepthZip():', error);
     });
     */
+    
     
     Promise.all([dasp_vs, dasp_fs, texture_vs, texture_fs])
     .then((shaders) => {
@@ -121,7 +128,6 @@ function render() {
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, app.dasp_texture);
         gl.uniform1i(app.glsl_programs['dasp'].uniforms.image, 0);
-        console.log(gl.getError(), app.dasp_texture);
         
         gl.bindVertexArray(app.points_vertex_array);
         gl.drawElements(gl.POINTS, app.dasp_resolution.width * app.dasp_resolution.height, gl.UNSIGNED_INT, 0);
@@ -359,6 +365,17 @@ function getBinaryFile(address) {
         req.open('GET', address, true);
         req.responseType = 'arraybuffer';
         req.send();
+    });
+}
+
+function getDepthExr(address) {
+    return new Promise((resolve, reject) => {
+        getBinaryFile(address).then((data) => {
+            let exr_reader = new OpenExrReader(data);
+            resolve(exr_reader);
+        }).catch((error) => {
+            reject(error);
+        });
     });
 }
 

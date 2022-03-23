@@ -19,6 +19,10 @@ A virtual reality viewing application for DASP images (as described in [[1](http
     * Views
         * Views Format: Stereo 3D
         * Stereo Mode: Top Bottom
+* View Layer Properties
+    * Passes
+        * Data
+            * Check Z
 * Object Data Properties (with camera selected)
     * Lens
         * Type: Panoramic
@@ -27,6 +31,12 @@ A virtual reality viewing application for DASP images (as described in [[1](http
         * Mode: Parallel
         * Interoculuar Distance: enter desired IPD + desired head motion diameter (e.g. for an IPD of 0.065 m and head motion diameter of 0.25 m, enter 0.315 m)
         * Check Spherical Stereo
+* Compositing Tab
+    * Check Use Nodes
+    * Add --> Output --> File Output
+        * Under Node --> Properties, change File Format to OpenEXR MultiLayer
+        * Connect Render Layers' Depth to File Output's Image
+        * Change File Output's Base Path to desired save path
 
 #### References
 
