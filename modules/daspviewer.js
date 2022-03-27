@@ -1,9 +1,40 @@
+import {OpenExrReader} from './openexrreader.mjs';
+const {mat4, vec3} = glMatrix;
+
 let canvas;
 let gl;
 let app = {};
-const {mat4, vec3} = glMatrix;
+
 
 function init() {
+    /*canvas = document.getElementById('render');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    
+    let ctx = canvas.getContext('2d');
+    
+    getDepthExr('images/bloodflow_colordepth_raw.exr').then((exr) => {
+        console.log(exr);
+        
+        // Update texture content
+        exr.setRedBufferName('R');
+        exr.setGreenBufferName('G');
+        exr.setBlueBufferName('B');
+        exr.setAlphaBufferName('A');
+        exr.generateInterleavedColorBuffer();
+    
+        let osr = document.createElement('canvas');
+        osr.width = exr.width;
+        osr.height = exr.height;
+        let osr_ctx = osr.getContext('2d');
+        osr_ctx.putImageData(new ImageData(exr.interleaved_color.buffer, exr.width, exr.height), 0, 0);
+        
+        ctx.drawImage(osr, 0, 0, canvas.width, canvas.height);
+    }).catch((error) => {
+        console.log(error);
+    });
+    */
+    
     canvas = document.getElementById('render');
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
@@ -32,18 +63,11 @@ function init() {
     
     
     // TEST CODE for unzipping depth files
-    getDepthExr('images/bloodflow_colordepth_L.exr').then((exr) => {
-        console.log(exr);
-    }).catch((error) => {
-        console.log('Error getDepthZip():', error);
-    });
-    /*
-    getDepthZip('images/Depth0001_L.exr').then((data) => {
-        console.log(new Uint8Array(data));
-    }).catch((error) => {
-        console.log('Error getDepthZip():', error);
-    });
-    */
+    //getDepthZip('images/Depth0001_L.exr').then((data) => {
+    //    console.log(new Uint8Array(data));
+    //}).catch((error) => {
+    //    console.log('Error getDepthZip():', error);
+    //});
     
     
     Promise.all([dasp_vs, dasp_fs, texture_vs, texture_fs])
@@ -77,6 +101,7 @@ function init() {
     });
         
     window.addEventListener('resize', onResize);
+    
 }
 
 function initializeGlApp() {
@@ -99,7 +124,7 @@ function initializeGlApp() {
 
 function idle() {
     let now = Date.now();
-    elapsed_time = now - app.previous_time;
+    let elapsed_time = now - app.previous_time;
     
     if (elapsed_time >= 2000) {
         console.log('FPS:', 1000.0 *  app.frame_count / elapsed_time);
@@ -212,6 +237,8 @@ function initializeDaspTexture(address) {
     gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    //gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    //gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
 
@@ -220,12 +247,38 @@ function initializeDaspTexture(address) {
     gl.bindTexture(gl.TEXTURE_2D, null);
     
     // Download the actual image
+    /*
     let img = new Image();
     img.crossOrigin = 'anonymous';
     img.addEventListener('load', (event) => {
         updateDaspTexture(texture, img);
     });
     img.src = address;
+    */
+    getDepthExr('images/bloodflow_colordepth_4k_raw.exr').then((exr) => {
+        console.log(exr);
+        app.dasp_resolution.width = exr.width;
+        app.dasp_resolution.height = exr.height;
+        app.points_vertex_array = createPointData();
+        
+        // Update texture content
+        exr.setRedBufferName('R');
+        exr.setGreenBufferName('G');
+        exr.setBlueBufferName('B');
+        exr.setAlphaBufferName('A');
+        exr.generateInterleavedColorBuffer();
+        
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, app.dasp_resolution.width, app.dasp_resolution.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, exr.interleaved_color.buffer);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+        
+        console.log(app.dasp_resolution.width, app.dasp_resolution.height, gl.getError())
+        
+        // Start render loop - TODO: change this
+        idle();
+    }).catch((error) => {
+        console.log('Error getDepthExr():', error);
+    });
     
     return texture;
 }
@@ -397,3 +450,5 @@ function getDepthZip(address) {
         });
     });
 }
+
+window.init = init;

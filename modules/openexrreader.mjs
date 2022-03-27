@@ -1,0 +1,482 @@
+import {inflate as zlib_inflate} from './pako.esm.mjs';
+import {Float16Array} from './float16.mjs';
+
+class OpenExrReader {
+    #read_idx;
+    #scan_lines_per_block;
+    
+    constructor(arraybuffer) {
+        this.exr_buffer = new Uint8Array(arraybuffer);
+        this.attributes = {};
+        this.width = 0;
+        this.height = 0;
+        this.colors = {red: null, green: null, blue: null, alpha: null};
+        this.interleaved_color = null;
+        this.depth = null;
+        this.image_buffers = {};
+        this.offset_table = [];
+        this.#read_idx = 0;
+        this.#scan_lines_per_block = 1;
+        
+        this.#decode();
+    }
+    
+    setRedBufferName(name) {
+        if (this.image_buffers.hasOwnProperty(name)) {
+            this.colors.red = this.image_buffers[name];
+        }
+    }
+    
+    setGreenBufferName(name) {
+        if (this.image_buffers.hasOwnProperty(name)) {
+            this.colors.green = this.image_buffers[name];
+        }
+    }
+    
+    setBlueBufferName(name) {
+        if (this.image_buffers.hasOwnProperty(name)) {
+            this.colors.blue = this.image_buffers[name];
+        }
+    }
+    
+    setAlphaBufferName(name) {
+        if (this.image_buffers.hasOwnProperty(name)) {
+            this.colors.alpha = this.image_buffers[name];
+        }
+    }
+    
+    setDepthBufferName(name) {
+        if (this.image_buffers.hasOwnProperty(name)) {
+            this.depth = this.image_buffers[name];
+        }
+    }
+    
+    generateInterleavedColorBuffer() {
+        let i, key, data_size, data_type;
+        let num_components = 0;
+        for (key in this.colors) {
+            if (this.colors.hasOwnProperty(key) && this.colors[key] !== null) {
+                if (num_components === 0) {
+                    data_size = this.colors[key].buffer.length;
+                    data_type = this.colors[key].type;
+                }
+                num_components++;
+            }
+        }
+        if (num_components > 0) {
+            let interleave_size = num_components * data_size;
+            this.interleaved_color = {type: 'uchar', buffer: new Uint8ClampedArray(interleave_size)};
+            /*if (data_type === 'uint') {
+                this.interleaved_color = {type: 'uint', buffer: new Uint32Array(interleave_size)};
+            }
+            else if (data_type === 'half') {
+                this.interleaved_color = {type: 'half', buffer: new Float16Array(interleave_size)};
+            }
+            else if (data_type === 'float') {
+                this.interleaved_color = {type: 'float', buffer: new Float32Array(interleave_size)};
+            }*/
+            
+            let component = 0;
+            for (key in this.colors) {
+                if (this.colors.hasOwnProperty(key) && this.colors[key] !== null) {
+                    for (i = 0; i < data_size; i++) {
+                        this.interleaved_color.buffer[num_components * i + component] = 255 * Math.pow(this.colors[key].buffer[i], 1/2.2);
+                    }
+                    component++;
+                }
+            }
+        }
+    }
+    
+    #decode() {
+        // magic number and version field
+        let i, key;
+        let magic_num = this.#readInt();
+        let version_field = this.#readInt();
+        let version = version_field & 0xFF;
+        let single_part_tiled = version_field & 0x200;
+        let long_names = version_field & 0x400;
+        let deep_data = version_field & 0x800;
+        let multipart = version_field & 0x1000;
+        if (single_part_tiled || long_names || deep_data || multipart) {
+            console.log('Error: OpenExrReader only supports single-part scan line EXR images');
+            return;
+        }
+        // attributes
+        while (this.exr_buffer[this.#read_idx] !== 0) {
+            this.#readAttrib();
+        }
+        this.#read_idx++;
+        this.width = this.attributes.dataWindow.value[2] - this.attributes.dataWindow.value[0] + 1;
+        this.height = this.attributes.dataWindow.value[3] - this.attributes.dataWindow.value[1] + 1;
+        // initialize image buffers
+        for (key in this.image_buffers) {
+            if (this.image_buffers.hasOwnProperty(key)) {
+                if (this.image_buffers[key].type === 'uint') {
+                    this.image_buffers[key].buffer = new Uint32Array(this.width * this.height);
+                }
+                else if (this.image_buffers[key].type === 'half') {
+                    this.image_buffers[key].buffer = new Float16Array(this.width * this.height);
+                }
+                else if (this.image_buffers[key].type === 'float') {
+                    this.image_buffers[key].buffer = new Float32Array(this.width * this.height);
+                }
+            }
+        }
+        // scan line offsets
+        let num_scan_lines = Math.ceil(this.height / this.#scan_lines_per_block);
+        for (i = 0; i < num_scan_lines; i++) {
+            this.offset_table.push(this.#readInt64());
+        }
+        // pixel data
+        for (i = 0; i < this.offset_table.length; i++) {
+            this.#read_idx = this.offset_table[i];
+            let scan_line_y = this.#readInt();
+            let scan_line_size = this.#readInt();
+            if (this.attributes.compression.value === 'none') {
+                this.#readPixelDataRaw(scan_line_y);
+            }
+            else if (this.attributes.compression.value === 'zip' || this.attributes.compression.value === 'zips') {
+                this.#readPixelDataZip(scan_line_y);
+            }
+        }
+        // TODO: guess at RGB / RGBA and Depth
+        //   - RGBA: 'R', 'G', 'B', 'A' (if exists) or '*.R', '*.G', '*.B', '*.A' (otherwise)
+        //   - Depth: 'Z' (if exists) or 'Depth' (if no 'Z') or ('Depth*') (otherwise)
+        
+        
+        this.#read_idx = this.offset_table[0];
+        let first_line = this.#readInt();
+        let first_size = this.#readInt();
+        let pixel_data = null;
+        if (this.attributes.compression.value === 'none') {
+            pixel_data = new Float32Array(this.exr_buffer.buffer.slice(this.#read_idx, this.#read_idx + first_size));
+        }
+        else if (this.attributes.compression.value === 'zip') { // or zips (ZIP with 1 scan line at a time)
+            // deflate
+            let deflated = zlib_inflate(this.exr_buffer.buffer.slice(this.#read_idx, this.#read_idx + first_size));
+            // reconstruct
+            for (i = 1; i < deflated.length; i++) {
+                let d = deflated[i-1] + deflated[i] - 128;
+                deflated[i] = d;
+            }
+            // interleave
+            let half = deflated.length / 2;
+            let uncompressed = new Uint8Array(deflated.length);
+            for (i = 0; i < half; i++) {
+                uncompressed[2 * i] = deflated[i];
+                uncompressed[2 * i + 1] = deflated[half + i];
+            }
+            pixel_data = new Float32Array(uncompressed.buffer);
+        }
+        //console.log(pixel_data);
+    }
+    
+    #readAttrib() {
+        let attrib = {};
+        let name = '';
+        while (this.exr_buffer[this.#read_idx] !== 0) {
+            name += String.fromCharCode(this.exr_buffer[this.#read_idx]);
+            this.#read_idx++;
+        }
+        this.#read_idx++;
+        attrib.type = '';
+        while (this.exr_buffer[this.#read_idx] !== 0) {
+            attrib.type += String.fromCharCode(this.exr_buffer[this.#read_idx]);
+            this.#read_idx++;
+        }
+        this.#read_idx++;
+        let attrib_size = this.#readInt();
+        
+        if (attrib.type === 'int') {
+            attrib.value = this.#readInt();
+        }
+        else if (attrib.type === 'float') {
+            attrib.value = this.#readFloat();
+        }
+        else if (attrib.type === 'string') {
+            attrib.value = this.#readString(attrib_size);
+        }
+        else if (attrib.type === 'compression') {
+            attrib.value = this.#readCompression();
+        }
+        else if (attrib.type === 'lineOrder') {
+            attrib.value = this.#readLineOrder();
+        }
+        else if (attrib.type === 'v2i') {
+            attrib.value = this.#readV2i();
+        }
+        else if (attrib.type === 'v2f') {
+            attrib.value = this.#readV2f();
+        }
+        else if (attrib.type === 'v3i') {
+            attrib.value = this.#readV3i();
+        }
+        else if (attrib.type === 'v3f') {
+            attrib.value = this.#readV3f();
+        }
+        else if (attrib.type === 'box2i') {
+            attrib.value = this.#readBox2i();
+        }
+        else if (attrib.type === 'box2f') {
+            attrib.value = this.#readBox2f();
+        }
+        else if (attrib.type === 'stringvector') {
+            attrib.value = this.#readStringVector(attrib_size);
+        }
+        else if (attrib.type === 'chlist') {
+            attrib.value = this.#readChannelList(attrib_size);
+        }
+        this.attributes[name] = attrib;
+    }
+    
+    #readInt() {
+        let int_val = (this.exr_buffer[this.#read_idx+3] << 24 |
+                       this.exr_buffer[this.#read_idx+2] << 16 |
+                       this.exr_buffer[this.#read_idx+1] <<  8 |
+                       this.exr_buffer[this.#read_idx]) >>> 0;
+        this.#read_idx += 4;
+        return int_val;
+    }
+    
+    #readInt64() {
+        // Note: due to limitations of JS, this only uses 48 bits
+        let int_val = (this.exr_buffer[this.#read_idx+5] << 40 |
+                       this.exr_buffer[this.#read_idx+4] << 32 |
+                       this.exr_buffer[this.#read_idx+3] << 24 |
+                       this.exr_buffer[this.#read_idx+2] << 16 |
+                       this.exr_buffer[this.#read_idx+1] <<  8 |
+                       this.exr_buffer[this.#read_idx]) >>> 0;
+        this.#read_idx += 8;
+        return int_val;
+    }
+    
+    #readFloat() {
+        let float_val = new Float32Array(this.exr_buffer.buffer.slice(this.#read_idx, this.#read_idx + 4));
+        this.#read_idx += 4;
+        return float_val[0];
+    }
+    
+    #readString(length) {
+        let i;
+        let str = '';
+        for (i = 0; i < length; i++) {
+            str += String.fromCharCode(this.exr_buffer[this.#read_idx + i]);
+        }
+        this.#read_idx += length;
+        return str;
+    }
+    
+    #readCompression() {
+        let compression = '';
+        switch (this.exr_buffer[this.#read_idx]) {
+            case 0:
+                compression = 'none';
+                this.#scan_lines_per_block = 1;
+                break;
+            case 1:
+                compression = 'rle';
+                this.#scan_lines_per_block = 1;
+                break;
+            case 2:
+                compression = 'zips';
+                this.#scan_lines_per_block = 1;
+                break;
+            case 3:
+                compression = 'zip';
+                this.#scan_lines_per_block = 16;
+                break;
+            case 4:
+                compression = 'piz';
+                this.#scan_lines_per_block = 32;
+                break;
+            case 5:
+                compression = 'pxr24';
+                this.#scan_lines_per_block = 16;
+                break;
+            case 6:
+                compression = 'b44';
+                this.#scan_lines_per_block = 32;
+                break;
+            case 7:
+                compression = 'b44a';
+                this.#scan_lines_per_block = 32;
+                break;
+        }
+        this.#read_idx++;
+        return compression;
+    }
+    
+    #readLineOrder() {
+        let line_order = '';
+        switch (this.exr_buffer[this.#read_idx]) {
+            case 0:
+                line_order = 'increasing_y';
+                break;
+            case 1:
+                line_order = 'decreasing_y';
+                break;
+            case 2:
+                line_order = 'random_y';
+                break;
+        }
+        this.#read_idx++;
+        return line_order;
+    }
+    
+    #readV2i() {
+        let vec = [];
+        vec.push((this.exr_buffer[this.#read_idx+3] << 24 |
+                  this.exr_buffer[this.#read_idx+2] << 16 |
+                  this.exr_buffer[this.#read_idx+1] <<  8 |
+                  this.exr_buffer[this.#read_idx]) >>> 0);
+        vec.push((this.exr_buffer[this.#read_idx+7] << 24 |
+                  this.exr_buffer[this.#read_idx+6] << 16 |
+                  this.exr_buffer[this.#read_idx+5] <<  8 |
+                  this.exr_buffer[this.#read_idx+4]) >>> 0);
+        this.#read_idx += 8;
+        return vec;
+    }
+    
+    #readV2f() {
+        let float_vals = new Float32Array(this.exr_buffer.buffer.slice(this.#read_idx, this.#read_idx + 8));
+        this.#read_idx += 8;
+        return [float_vals[0], float_vals[1]];
+    }
+    
+    #readV3i() {
+        let vec = [];
+        vec.push((this.exr_buffer[this.#read_idx+3] << 24 |
+                  this.exr_buffer[this.#read_idx+2] << 16 |
+                  this.exr_buffer[this.#read_idx+1] <<  8 |
+                  this.exr_buffer[this.#read_idx]) >>> 0);
+        vec.push((this.exr_buffer[this.#read_idx+7] << 24 |
+                  this.exr_buffer[this.#read_idx+6] << 16 |
+                  this.exr_buffer[this.#read_idx+5] <<  8 |
+                  this.exr_buffer[this.#read_idx+4]) >>> 0);
+        vec.push((this.exr_buffer[this.#read_idx+11] << 24 |
+                  this.exr_buffer[this.#read_idx+10] << 16 |
+                  this.exr_buffer[this.#read_idx+ 9] <<  8 |
+                  this.exr_buffer[this.#read_idx+ 8]) >>> 0);
+        this.#read_idx += 12;
+        return vec;
+    }
+    
+    #readV3f() {
+        let float_vals = new Float32Array(this.exr_buffer.buffer.slice(this.#read_idx, this.#read_idx + 12));
+        this.#read_idx += 12;
+        return [float_vals[0], float_vals[1], float_vals[2]];
+    }
+    
+    #readBox2i() {
+        let box = [];
+        box.push((this.exr_buffer[this.#read_idx+3] << 24 |
+                  this.exr_buffer[this.#read_idx+2] << 16 |
+                  this.exr_buffer[this.#read_idx+1] <<  8 |
+                  this.exr_buffer[this.#read_idx]) >>> 0);
+        box.push((this.exr_buffer[this.#read_idx+7] << 24 |
+                  this.exr_buffer[this.#read_idx+6] << 16 |
+                  this.exr_buffer[this.#read_idx+5] <<  8 |
+                  this.exr_buffer[this.#read_idx+4]) >>> 0);
+        box.push((this.exr_buffer[this.#read_idx+11] << 24 |
+                  this.exr_buffer[this.#read_idx+10] << 16 |
+                  this.exr_buffer[this.#read_idx+ 9] <<  8 |
+                  this.exr_buffer[this.#read_idx+ 8]) >>> 0);
+        box.push((this.exr_buffer[this.#read_idx+15] << 24 |
+                  this.exr_buffer[this.#read_idx+14] << 16 |
+                  this.exr_buffer[this.#read_idx+13] <<  8 |
+                  this.exr_buffer[this.#read_idx+12]) >>> 0);
+        this.#read_idx += 16;
+        return box;
+    }
+    
+    #readBox2f() {
+        let float_vals = new Float32Array(this.exr_buffer.buffer.slice(this.#read_idx, this.#read_idx + 16));
+        this.#read_idx += 16;
+        return [float_vals[0], float_vals[1], float_vals[2], float_vals[3]];
+    }
+    
+    #readStringVector(length) {
+        let i = 0;
+        let str_vector = [];
+        while (i < length) {
+            let size = this.#readInt();
+            let str = this.#readString(size);
+            str_vector.push(str);
+            i += size + 4;
+        }
+        return str_vector;
+    }
+    
+    #readChannelList(length) {
+        let channels = [];
+        let i = 0;
+        while (i < length - 1) {
+            let channel = {};
+            i += this.#readChannel(channel);
+            channels.push(channel);
+        }
+        this.#read_idx++;
+        return channels;
+    }
+    
+    #readChannel(channel) {
+        let channel_start = this.#read_idx;
+        channel.name = '';
+        while (this.exr_buffer[this.#read_idx] !== 0) {
+            channel.name += String.fromCharCode(this.exr_buffer[this.#read_idx]);
+            this.#read_idx++;
+        }
+        this.#read_idx++;
+        let px_type = this.#readInt();
+        switch (px_type) {
+            case 0:
+                channel.pixel_type = 'uint';
+                break;
+            case 1:
+                channel.pixel_type = 'half';
+                break;
+            case 2:
+                channel.pixel_type = 'float';
+                break;
+        }
+        channel.linear = (this.exr_buffer[this.#read_idx] === 1);
+        this.#read_idx += 4;
+        channel.sampling_x = this.#readInt();
+        channel.sampling_y = this.#readInt();
+        
+        this.image_buffers[channel.name] = {type: channel.pixel_type, buffer: null};
+        
+        return this.#read_idx - channel_start;
+    }
+    
+    #readPixelDataRaw(scan_line) {
+        let i;
+        let width = this.attributes.dataWindow.value[2] - this.attributes.dataWindow.value[0] + 1;
+        let offset = scan_line * width;
+        for (i = 0; i < this.attributes.channels.value.length; i++) {
+            let pixel_data, size;
+            let channel = this.attributes.channels.value[i];
+            if (channel.pixel_type === 'uint') {
+                size = 4 * this.#scan_lines_per_block * width;
+                pixel_data = new Uint32Array(this.exr_buffer.buffer.slice(this.#read_idx, this.#read_idx + size));
+            }
+            else if (channel.pixel_type === 'half') {
+                size = 2 * this.#scan_lines_per_block * width;
+                pixel_data = new Float16Array(this.exr_buffer.buffer.slice(this.#read_idx, this.#read_idx + size));
+            }
+            else if (channel.pixel_type === 'float') {
+                size = 4 * this.#scan_lines_per_block * width;
+                pixel_data = new Float32Array(this.exr_buffer.buffer.slice(this.#read_idx, this.#read_idx + size));
+            }
+            this.#read_idx += size;
+            this.image_buffers[channel.name].buffer.set(pixel_data, offset);
+        }
+    }
+    
+    #readPixelDataZip() {
+        
+    }
+}
+
+export { OpenExrReader };
