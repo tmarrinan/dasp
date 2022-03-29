@@ -17,7 +17,7 @@ function init() {
     
     app.glsl_programs = {};
     app.dasp_resolution = {width: 1, height: 1};
-    app.points_vertex_array = null;
+    app.points_vertex_array = {left: null, right: null};
     app.vertex_position_attrib = 0;
     app.vertex_texcoord_attrib = 1;
     app.view_matrix = mat4.create();
@@ -113,7 +113,7 @@ function render() {
     // Delete previous frame (reset both framebuffer and z-buffer)
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     
-    if (app.points_vertex_array !== null) {
+    if (app.points_vertex_array.left !== null) {
         gl.useProgram(app.glsl_programs['dasp'].program);
         
         gl.uniform1f(app.glsl_programs['dasp'].uniforms.ipd, 0.315);
@@ -130,9 +130,9 @@ function render() {
         gl.bindTexture(gl.TEXTURE_2D, app.dasp_textures.left.depth);
         gl.uniform1i(app.glsl_programs['dasp'].uniforms.depths, 1);
         
-        gl.bindVertexArray(app.points_vertex_array.vertex_array);
-        gl.drawElements(gl.POINTS, app.points_vertex_array.num_points, gl.UNSIGNED_INT, 0);
-        //gl.drawElements(gl.TRIANGLE_STRIP, app.points_vertex_array.num_points, gl.UNSIGNED_INT, 0);
+        gl.bindVertexArray(app.points_vertex_array.left.vertex_array);
+        //gl.drawElements(gl.POINTS, app.points_vertex_array.left.num_points, gl.UNSIGNED_INT, 0);
+        gl.drawElements(gl.TRIANGLE_STRIP, app.points_vertex_array.left.num_points, gl.UNSIGNED_INT, 0);
         gl.bindVertexArray(null);
         
         // Right eye
@@ -145,9 +145,9 @@ function render() {
         gl.bindTexture(gl.TEXTURE_2D, app.dasp_textures.right.depth);
         gl.uniform1i(app.glsl_programs['dasp'].uniforms.depths, 1);
         
-        gl.bindVertexArray(app.points_vertex_array.vertex_array);
-        gl.drawElements(gl.POINTS, app.points_vertex_array.num_points, gl.UNSIGNED_INT, 0);
-        //gl.drawElements(gl.TRIANGLE_STRIP, app.points_vertex_array.num_points, gl.UNSIGNED_INT, 0);
+        gl.bindVertexArray(app.points_vertex_array.right.vertex_array);
+        //gl.drawElements(gl.POINTS, app.points_vertex_array.right.num_points, gl.UNSIGNED_INT, 0);
+        gl.drawElements(gl.TRIANGLE_STRIP, app.points_vertex_array.right.num_points, gl.UNSIGNED_INT, 0);
         gl.bindVertexArray(null);
         
         gl.useProgram(null);
@@ -282,9 +282,9 @@ function updateDaspTexture(exr) {
     // TODO: recreate (and delete old) only if width / height has changed
     app.dasp_resolution.width = exr.width;
     app.dasp_resolution.height = exr.height;
-    app.points_vertex_array = createPointData();
     
     // Update texture content - left eye
+    app.points_vertex_array.left = createPointData(exr.image_buffers['Depth.left.V'].buffer, 0.1);
     let options_left = {
         red_buffer: 'Image.left.R',
         green_buffer: 'Image.left.G',
@@ -306,6 +306,7 @@ function updateDaspTexture(exr) {
     }
     
     // Update texture content - right eye
+    app.points_vertex_array.right = createPointData(exr.image_buffers['Depth.right.V'].buffer, 0.1);
     let options_right = {
         red_buffer: 'Image.right.R',
         green_buffer: 'Image.right.G',
@@ -332,7 +333,7 @@ function updateDaspTexture(exr) {
     idle();
 }
 
-function createPointData(depth_data) {
+function createPointData(depth_data, delta_depth_threshold) {
     let i, j;
     const PRIMITIVE_RESTART = 4294967295;
     
@@ -347,33 +348,56 @@ function createPointData(depth_data) {
     gl.bindBuffer(gl.ARRAY_BUFFER, vertex_position_buffer);
     // Create array of 2D vertex values (each set of 2 values specifies a vertex: x, y),
     // texcoords (normalized coords), and vertex indices (flat 1D array)
-    let vertices = [];
-    let texcoords = [];
-    let indices = [];
-    let width = 2 * app.dasp_resolution.width;
-    let height = 2 * app.dasp_resolution.height;
+    let width = app.dasp_resolution.width;
+    let height = app.dasp_resolution.height;
+    let vertices = new Float32Array(2 * width * height);
+    let texcoords = new Float32Array(2 * width * height);
+    //let indices = new Uint32Array(width * height);
+    let indices = new Uint32Array((3 * width * (height - 1)) + (3 * (height - 1)));
+    let face_idx = 0;
     for (i = 0; i < height; i++) {
         for (j = 0; j < width; j++) {
+            let idx = i * width + j;
             let lat = Math.PI * (((i + 0.5) / height) - 0.5);
             let lon = 2 * Math.PI * (((j + 0.5) / width) - 0.5);
-            vertices.push(lon);
-            vertices.push(lat);
-            texcoords.push((j + 0.5) / width);
-            texcoords.push((i + 0.5) / height);
+            vertices[2 * idx + 0] = lon;
+            vertices[2 * idx + 1] = lat;
+            texcoords[2 * idx + 0] = (j + 0.5) / width;
+            texcoords[2 * idx + 1] = (i + 0.5) / height;
             // points
-            indices.push(i * width + j);
+            //indices[idx] = idx;
             // triangle strip mesh
-            //if (i < height - 1) {
-            //    indices.push(i * width + j);
-            //    indices.push((i + 1) * width + j);
-            //}
+            if (i < height - 1) {
+                indices[face_idx] = i * width + j;
+                face_idx++;
+                indices[face_idx] = (i + 1) * width + j;
+                face_idx++;
+                
+                let depth_1 = depth_data[(height - i - 1) * width + j];
+                let depth_2 = depth_data[(height - i - 1) * width + ((j + 1) % width)];
+                //console.log(depth_1, depth_2);
+                if (Math.abs(depth_1 - depth_2) > delta_depth_threshold) {
+                    indices[face_idx] = PRIMITIVE_RESTART;
+                    face_idx++;
+                }
+                
+            }
         }
-        //indices.push(i * width);
-        //indices.push((i + 1) * width);
-        //indices.push(PRIMITIVE_RESTART)
+        if (i < height - 1) {
+            indices[face_idx] = i * width;
+            face_idx++;
+            indices[face_idx] = (i + 1) * width;
+            face_idx++;
+            indices[face_idx] = PRIMITIVE_RESTART;
+            face_idx++;
+        }
     }
+    console.log(indices.length);
+    indices = indices.subarray(0, face_idx);
+    console.log(indices.length);
+    
     // Store array of vertex positions in the vertex_position_buffer
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
     // Enable vertex_position_attrib in our GPU program
     gl.enableVertexAttribArray(app.vertex_position_attrib);
     // Attach vertex_position_buffer to the position_attrib
@@ -385,7 +409,7 @@ function createPointData(depth_data) {
     // Set newly created buffer as the active one we are modifying
     gl.bindBuffer(gl.ARRAY_BUFFER, vertex_texcoord_buffer);
     // Store array of vertex texcoords in the vertex_texcoord_buffer
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(texcoords), gl.STATIC_DRAW);
+    gl.bufferData(gl.ARRAY_BUFFER, texcoords, gl.STATIC_DRAW);
     // Enable vertex_texcoord_attrib in our GPU program
     gl.enableVertexAttribArray(app.vertex_texcoord_attrib);
     // Attach vertex_texcoord_buffer to the texcoord_attrib
@@ -397,7 +421,7 @@ function createPointData(depth_data) {
     // Set newly created buffer as the active one we are modifying
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, vertex_index_buffer);
     // Store array of vertex indices in the vertex_index_buffer
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(indices), gl.STATIC_DRAW);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
     
     // No longer modifying our Vertex Array Object, so deselect
     gl.bindVertexArray(null);
