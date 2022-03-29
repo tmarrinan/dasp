@@ -10,9 +10,6 @@ class OpenExrReader {
         this.attributes = {};
         this.width = 0;
         this.height = 0;
-        this.colors = {red: null, green: null, blue: null, alpha: null};
-        this.interleaved_color = null;
-        this.depth = null;
         this.image_buffers = {};
         this.offset_table = [];
         this.#read_idx = 0;
@@ -21,71 +18,35 @@ class OpenExrReader {
         this.#decode();
     }
     
-    setRedBufferName(name) {
-        if (this.image_buffers.hasOwnProperty(name)) {
-            this.colors.red = this.image_buffers[name];
+    generateRgbaUint8Buffer(options) {
+        if (!options) options = {};
+        options.red_buffer = options.red_buffer || 'R';
+        options.green_buffer = options.green_buffer || 'G';
+        options.blue_buffer = options.blue_buffer || 'B';
+        options.alpha_buffer = options.alpha_buffer || 'A';
+        options.gamma_correct = options.gamma_correct || true;
+        
+        if (!this.image_buffers.hasOwnProperty(options.red_buffer) ||
+            !this.image_buffers.hasOwnProperty(options.green_buffer) ||
+            !this.image_buffers.hasOwnProperty(options.blue_buffer) ||
+            !this.image_buffers.hasOwnProperty(options.alpha_buffer)) {
+            console.log('OpenExrReader: Error - no image buffer with specified name');
+            return null;
         }
-    }
-    
-    setGreenBufferName(name) {
-        if (this.image_buffers.hasOwnProperty(name)) {
-            this.colors.green = this.image_buffers[name];
+        
+        let i;
+        let gamma = options.gamma_correct ? 1.0 / 2.2 : 1.0;
+        let normalize = this.image_buffers[options.red_buffer].type === 'uint' ? 4294967295.0 : 1.0
+        let component_size = this.image_buffers[options.red_buffer].buffer.length;
+        let buffer_size = 4 * component_size;
+        let buffer = new Uint8Array(buffer_size);
+        for (i = 0; i < component_size; i++) {
+            buffer[4 * i + 0] = 255 * Math.pow((this.image_buffers[options.red_buffer].buffer[i] / normalize), gamma);
+            buffer[4 * i + 1] = 255 * Math.pow((this.image_buffers[options.green_buffer].buffer[i] / normalize), gamma);
+            buffer[4 * i + 2] = 255 * Math.pow((this.image_buffers[options.blue_buffer].buffer[i] / normalize), gamma);
+            buffer[4 * i + 3] = 255 * (this.image_buffers[options.alpha_buffer].buffer[i] / normalize);
         }
-    }
-    
-    setBlueBufferName(name) {
-        if (this.image_buffers.hasOwnProperty(name)) {
-            this.colors.blue = this.image_buffers[name];
-        }
-    }
-    
-    setAlphaBufferName(name) {
-        if (this.image_buffers.hasOwnProperty(name)) {
-            this.colors.alpha = this.image_buffers[name];
-        }
-    }
-    
-    setDepthBufferName(name) {
-        if (this.image_buffers.hasOwnProperty(name)) {
-            this.depth = this.image_buffers[name];
-        }
-    }
-    
-    generateInterleavedColorBuffer() {
-        let i, key, data_size, data_type;
-        let num_components = 0;
-        for (key in this.colors) {
-            if (this.colors.hasOwnProperty(key) && this.colors[key] !== null) {
-                if (num_components === 0) {
-                    data_size = this.colors[key].buffer.length;
-                    data_type = this.colors[key].type;
-                }
-                num_components++;
-            }
-        }
-        if (num_components > 0) {
-            let interleave_size = num_components * data_size;
-            this.interleaved_color = {type: 'uchar', buffer: new Uint8ClampedArray(interleave_size)};
-            /*if (data_type === 'uint') {
-                this.interleaved_color = {type: 'uint', buffer: new Uint32Array(interleave_size)};
-            }
-            else if (data_type === 'half') {
-                this.interleaved_color = {type: 'half', buffer: new Float16Array(interleave_size)};
-            }
-            else if (data_type === 'float') {
-                this.interleaved_color = {type: 'float', buffer: new Float32Array(interleave_size)};
-            }*/
-            
-            let component = 0;
-            for (key in this.colors) {
-                if (this.colors.hasOwnProperty(key) && this.colors[key] !== null) {
-                    for (i = 0; i < data_size; i++) {
-                        this.interleaved_color.buffer[num_components * i + component] = 255 * Math.pow(this.colors[key].buffer[i], 1/2.2);
-                    }
-                    component++;
-                }
-            }
-        }
+        return buffer;
     }
     
     #decode() {
@@ -99,7 +60,7 @@ class OpenExrReader {
         let deep_data = version_field & 0x800;
         let multipart = version_field & 0x1000;
         if (single_part_tiled || long_names || deep_data || multipart) {
-            console.log('Error: OpenExrReader only supports single-part scan line EXR images');
+            console.log('OpenExrReader: Error - only supports single-part scan line EXR images');
             return;
         }
         // attributes
@@ -140,11 +101,8 @@ class OpenExrReader {
                 this.#readPixelDataZip(scan_line_y);
             }
         }
-        // TODO: guess at RGB / RGBA and Depth
-        //   - RGBA: 'R', 'G', 'B', 'A' (if exists) or '*.R', '*.G', '*.B', '*.A' (otherwise)
-        //   - Depth: 'Z' (if exists) or 'Depth' (if no 'Z') or ('Depth*') (otherwise)
         
-        
+        /*
         this.#read_idx = this.offset_table[0];
         let first_line = this.#readInt();
         let first_size = this.#readInt();
@@ -170,6 +128,7 @@ class OpenExrReader {
             pixel_data = new Float32Array(uncompressed.buffer);
         }
         //console.log(pixel_data);
+        */
     }
     
     #readAttrib() {

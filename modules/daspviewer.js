@@ -7,34 +7,6 @@ let app = {};
 
 
 function init() {
-    /*canvas = document.getElementById('render');
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-    
-    let ctx = canvas.getContext('2d');
-    
-    getDepthExr('images/bloodflow_colordepth_raw.exr').then((exr) => {
-        console.log(exr);
-        
-        // Update texture content
-        exr.setRedBufferName('R');
-        exr.setGreenBufferName('G');
-        exr.setBlueBufferName('B');
-        exr.setAlphaBufferName('A');
-        exr.generateInterleavedColorBuffer();
-    
-        let osr = document.createElement('canvas');
-        osr.width = exr.width;
-        osr.height = exr.height;
-        let osr_ctx = osr.getContext('2d');
-        osr_ctx.putImageData(new ImageData(exr.interleaved_color.buffer, exr.width, exr.height), 0, 0);
-        
-        ctx.drawImage(osr, 0, 0, canvas.width, canvas.height);
-    }).catch((error) => {
-        console.log(error);
-    });
-    */
-    
     canvas = document.getElementById('render');
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
@@ -48,10 +20,9 @@ function init() {
     app.points_vertex_array = null;
     app.vertex_position_attrib = 0;
     app.vertex_texcoord_attrib = 1;
-    app.vertex_depth_attrib = 2;
     app.view_matrix = mat4.create();
     app.projection_matrix = mat4.create();
-    app.dasp_texture = null;
+    app.dasp_textures = {left: {color: null, depth: null}, right: {color: null, depth: null}};
     app.previous_time = 0;
     app.frame_count = 0;
     
@@ -76,7 +47,6 @@ function init() {
         let texture_program = createShaderProgram(shaders[2], shaders[3]);
         
         gl.bindAttribLocation(dasp_program, app.vertex_position_attrib, 'vertex_position');
-        gl.bindAttribLocation(dasp_program, app.vertex_depth_attrib, 'vertex_depth');
         gl.bindAttribLocation(dasp_program, app.vertex_texcoord_attrib, 'vertex_texcoord');
         
         gl.bindAttribLocation(texture_program, app.vertex_position_attrib, 'vertex_position');
@@ -114,9 +84,10 @@ function initializeGlApp() {
     
     // Load DASP image
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-    app.dasp_texture = initializeDaspTexture('images/bloodflow_sample.jpg');
+    initializeDaspTexture('images/bloodflow_colordepth_4k_raw.exr');
     
-    // Set projection matrix
+    // Set view and projection matrix
+    mat4.lookAt(app.view_matrix, vec3.fromValues(-0.05, 0.0, 0.0), vec3.fromValues(-0.05, 0.0, -1.0), vec3.fromValues(0.0, 1.0, 0.0));
     mat4.perspective(app.projection_matrix, 60.0 * Math.PI / 180.0, canvas.width / canvas.height, 0.1, 1000.0);
     
     app.previous_time = Date.now();
@@ -145,14 +116,33 @@ function render() {
     if (app.points_vertex_array !== null) {
         gl.useProgram(app.glsl_programs['dasp'].program);
         
-        gl.uniform1f(app.glsl_programs['dasp'].uniforms.ipd, 0.065);
-        gl.uniform1f(app.glsl_programs['dasp'].uniforms.eye, 1.0);
+        gl.uniform1f(app.glsl_programs['dasp'].uniforms.ipd, 0.315);
         gl.uniformMatrix4fv(app.glsl_programs['dasp'].uniforms.view_matrix, false, app.view_matrix);
         gl.uniformMatrix4fv(app.glsl_programs['dasp'].uniforms.projection_matrix, false, app.projection_matrix);
         
+        // Left eye
+        gl.uniform1f(app.glsl_programs['dasp'].uniforms.eye, -1.0);
+        
         gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, app.dasp_texture);
+        gl.bindTexture(gl.TEXTURE_2D, app.dasp_textures.left.color);
         gl.uniform1i(app.glsl_programs['dasp'].uniforms.image, 0);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, app.dasp_textures.left.depth);
+        gl.uniform1i(app.glsl_programs['dasp'].uniforms.depths, 1);
+        
+        gl.bindVertexArray(app.points_vertex_array);
+        gl.drawElements(gl.POINTS, app.dasp_resolution.width * app.dasp_resolution.height, gl.UNSIGNED_INT, 0);
+        gl.bindVertexArray(null);
+        
+        // Right eye
+        gl.uniform1f(app.glsl_programs['dasp'].uniforms.eye, 1.0);
+        
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, app.dasp_textures.right.color);
+        gl.uniform1i(app.glsl_programs['dasp'].uniforms.image, 0);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, app.dasp_textures.right.depth);
+        gl.uniform1i(app.glsl_programs['dasp'].uniforms.depths, 1);
         
         gl.bindVertexArray(app.points_vertex_array);
         gl.drawElements(gl.POINTS, app.dasp_resolution.width * app.dasp_resolution.height, gl.UNSIGNED_INT, 0);
@@ -231,77 +221,111 @@ function getShaderProgramUniforms(program) {
 }
 
 function initializeDaspTexture(address) {
-    // Create texture and temporarily fill it with a 1x1 white image
-    let texture = gl.createTexture();
+    let pixels = new Uint8Array([255, 255, 255, 255]);
+    let depths = new Float32Array([10000000000.0]);
     
-    gl.bindTexture(gl.TEXTURE_2D, texture);
+    // Create color texture and temporarily fill it with a 1x1 white image
+    app.dasp_textures.left.color = gl.createTexture();
+    
+    gl.bindTexture(gl.TEXTURE_2D, app.dasp_textures.left.color);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    //gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    //gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
-
-    let pixels = new Uint8Array([255, 255, 255, 255]);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    
+    // Create depth texture and temporarily fill it with a 1x1 far distance value
+    app.dasp_textures.left.depth = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, app.dasp_textures.left.depth);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, 1, 1, 0, gl.RED, gl.FLOAT, depths);
+    
+    // Create color texture and temporarily fill it with a 1x1 white image
+    app.dasp_textures.right.color = gl.createTexture();
+    
+    gl.bindTexture(gl.TEXTURE_2D, app.dasp_textures.right.color);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    
+    // Create depth texture and temporarily fill it with a 1x1 far distance value
+    app.dasp_textures.right.depth = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, app.dasp_textures.right.depth);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, 1, 1, 0, gl.RED, gl.FLOAT, depths);
+    
     gl.bindTexture(gl.TEXTURE_2D, null);
     
     // Download the actual image
-    /*
-    let img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.addEventListener('load', (event) => {
-        updateDaspTexture(texture, img);
-    });
-    img.src = address;
-    */
-    getDepthExr('images/bloodflow_colordepth_4k_raw.exr').then((exr) => {
-        console.log(exr);
-        app.dasp_resolution.width = exr.width;
-        app.dasp_resolution.height = exr.height;
-        app.points_vertex_array = createPointData();
-        
-        // Update texture content
-        exr.setRedBufferName('R');
-        exr.setGreenBufferName('G');
-        exr.setBlueBufferName('B');
-        exr.setAlphaBufferName('A');
-        exr.generateInterleavedColorBuffer();
-        
-        gl.bindTexture(gl.TEXTURE_2D, texture);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, app.dasp_resolution.width, app.dasp_resolution.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, exr.interleaved_color.buffer);
-        gl.bindTexture(gl.TEXTURE_2D, null);
-        
-        console.log(app.dasp_resolution.width, app.dasp_resolution.height, gl.getError())
-        
-        // Start render loop - TODO: change this
-        idle();
-    }).catch((error) => {
+    getDepthExr(address).then(updateDaspTexture).catch((error) => {
         console.log('Error getDepthExr():', error);
     });
-    
-    return texture;
 }
 
-function updateDaspTexture(texture, img_element) {
-    // Check if resolution has changed
-    if (app.dasp_resolution.width !== img_element.naturalWidth || app.dasp_resolution.height !== img_element.naturalHeight) {
-        app.dasp_resolution.width = img_element.naturalWidth;
-        app.dasp_resolution.height = img_element.naturalHeight / 2;
-        // TODO destroy old one if exists?
-        app.points_vertex_array = createPointData();
+function updateDaspTexture(exr) {
+    console.log(exr);
+    // TODO: recreate (and delete old) only if width / height has changed
+    app.dasp_resolution.width = exr.width;
+    app.dasp_resolution.height = exr.height;
+    app.points_vertex_array = createPointData();
+    
+    // Update texture content - left eye
+    let options_left = {
+        red_buffer: 'Image.left.R',
+        green_buffer: 'Image.left.G',
+        blue_buffer: 'Image.left.B',
+        alpha_buffer: 'Image.left.A',
+        gamma_correct: true
     }
-        
-    // Update texture content
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img_element);
+    let pixels_left = exr.generateRgbaUint8Buffer(options_left);
+    
+    gl.bindTexture(gl.TEXTURE_2D, app.dasp_textures.left.color);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, app.dasp_resolution.width, app.dasp_resolution.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, pixels_left);
+    
+    gl.bindTexture(gl.TEXTURE_2D, app.dasp_textures.left.depth);
+    if (exr.image_buffers['Depth.left.V'].type === 'half') {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, app.dasp_resolution.width, app.dasp_resolution.height, 0, gl.RED, gl.HALF_FLOAT, exr.image_buffers['Depth.left.V'].buffer);
+    }
+    else { // 'float'
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, app.dasp_resolution.width, app.dasp_resolution.height, 0, gl.RED, gl.FLOAT, exr.image_buffers['Depth.left.V'].buffer);
+    }
+    
+    // Update texture content - right eye
+    let options_right = {
+        red_buffer: 'Image.right.R',
+        green_buffer: 'Image.right.G',
+        blue_buffer: 'Image.right.B',
+        alpha_buffer: 'Image.right.A',
+        gamma_correct: true
+    }
+    let pixels_right = exr.generateRgbaUint8Buffer(options_right);
+    
+    gl.bindTexture(gl.TEXTURE_2D, app.dasp_textures.right.color);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, app.dasp_resolution.width, app.dasp_resolution.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, pixels_right);
+    
+    gl.bindTexture(gl.TEXTURE_2D, app.dasp_textures.right.depth);
+    if (exr.image_buffers['Depth.right.V'].type === 'half') {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, app.dasp_resolution.width, app.dasp_resolution.height, 0, gl.RED, gl.HALF_FLOAT, exr.image_buffers['Depth.right.V'].buffer);
+    }
+    else { // 'float'
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, app.dasp_resolution.width, app.dasp_resolution.height, 0, gl.RED, gl.FLOAT, exr.image_buffers['Depth.right.V'].buffer);
+    }
+    
     gl.bindTexture(gl.TEXTURE_2D, null);
     
     // Start render loop - TODO: change this
     idle();
 }
 
-function createPointData() {
+function createPointData(depth_data) {
     let i, j;
     
     // Create a new Vertex Array Object
@@ -316,7 +340,7 @@ function createPointData() {
     // Create array of 2D vertex values (each set of 2 values specifies a vertex: x, y),
     // depths (distance each point is from camera), and vertex indices (flat 1D array)
     let vertices = [];
-    let depths = [];
+    //let depths = [];
     let texcoords = [];
     let indices = [];
     for (i = 0; i < app.dasp_resolution.height; i++) {
@@ -325,9 +349,10 @@ function createPointData() {
             let lon = 2 * Math.PI * (((j + 0.5) / app.dasp_resolution.width) - 0.5);
             vertices.push(lon);
             vertices.push(lat);
-            depths.push(3.0); // TODO: update this based on depth info (currently all 3m away)
+            //depths.push(depth_data.buffer[(app.dasp_resolution.height - i - 1) * app.dasp_resolution.width + j]);
             texcoords.push((j + 0.5) / app.dasp_resolution.width);
-            texcoords.push((i + 0.5) / (app.dasp_resolution.height * 2.0));
+            //texcoords.push((i + 0.5) / (app.dasp_resolution.height * 2.0));
+            texcoords.push((i + 0.5) / app.dasp_resolution.height);
             indices.push(i * app.dasp_resolution.width + j);
         }
     }
@@ -338,18 +363,6 @@ function createPointData() {
     // Attach vertex_position_buffer to the position_attrib
     // (as 2-component floating point values)
     gl.vertexAttribPointer(app.vertex_position_attrib, 2, gl.FLOAT, false, 0, 0);
-    
-    // Create buffer to store vertex depths
-    let vertex_depth_buffer = gl.createBuffer();
-    // Set newly created buffer as the active one we are modifying
-    gl.bindBuffer(gl.ARRAY_BUFFER, vertex_depth_buffer);
-    // Store array of vertex depths in the vertex_depth_buffer
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(depths), gl.STATIC_DRAW);
-    // Enable vertex_depth_attrib in our GPU program
-    gl.enableVertexAttribArray(app.vertex_depth_attrib);
-    // Attach vertex_depth_buffer to the depth_attrib
-    // (as 1-component floating point values)
-    gl.vertexAttribPointer(app.vertex_depth_attrib, 1, gl.FLOAT, false, 0, 0);
     
     // Create buffer to store vertex texcoords
     let vertex_texcoord_buffer = gl.createBuffer();
