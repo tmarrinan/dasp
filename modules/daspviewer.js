@@ -10,7 +10,7 @@ function init() {
     canvas = document.getElementById('render');
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
-    gl = canvas.getContext('webgl2', {antialias: false});
+    gl = canvas.getContext('webgl2');//, {antialias: false});
     if (!gl) {
         alert('Unable to initialize WebGL 2. Your browser may not support it.');
     }
@@ -20,6 +20,7 @@ function init() {
     app.points_vertex_array = {left: null, right: null};
     app.vertex_position_attrib = 0;
     app.vertex_texcoord_attrib = 1;
+    app.camera_position = vec3.create();
     app.view_matrix = mat4.create();
     app.projection_matrix = mat4.create();
     app.dasp_textures = {left: {color: null, depth: null}, right: {color: null, depth: null}};
@@ -78,7 +79,7 @@ function initializeGlApp() {
     // Set drawing area to be the entire framebuffer
     gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
     // Set the background color to black
-    gl.clearColor(0.0, 0.0, 0.0, 1.0);
+    gl.clearColor(0.533, 0.745, 0.922, 1.0);  // rgb(136, 190, 235)
     // Enable z-buffer for visible surface determination
     gl.enable(gl.DEPTH_TEST);
     
@@ -86,8 +87,11 @@ function initializeGlApp() {
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
     initializeDaspTexture('images/example_dasp_2k_raw.exr');
     
+    // Set camera position
+    vec3.set(app.camera_position, 0.0, 0.0, 0.0);
+    
     // Set view and projection matrix
-    mat4.lookAt(app.view_matrix, vec3.fromValues(0.0, 0.0, 0.0), vec3.fromValues(-10.0, -0.8, 3.0), vec3.fromValues(0.0, 1.0, 0.0));
+    mat4.lookAt(app.view_matrix, app.camera_position, vec3.fromValues(-10.0, -0.8, 3.0), vec3.fromValues(0.0, 1.0, 0.0));
     mat4.perspective(app.projection_matrix, 60.0 * Math.PI / 180.0, canvas.width / canvas.height, 0.1, 1000.0);
     
     app.previous_time = Date.now();
@@ -117,8 +121,9 @@ function render() {
         gl.useProgram(app.glsl_programs['dasp'].program);
         
         gl.uniform1f(app.glsl_programs['dasp'].uniforms.ipd, 0.315);
-        gl.uniformMatrix4fv(app.glsl_programs['dasp'].uniforms.view_matrix, false, app.view_matrix);
-        gl.uniformMatrix4fv(app.glsl_programs['dasp'].uniforms.projection_matrix, false, app.projection_matrix);
+        gl.uniform3fv(app.glsl_programs['dasp'].uniforms.camera_position, app.camera_position);
+        //gl.uniformMatrix4fv(app.glsl_programs['dasp'].uniforms.view_matrix, false, app.view_matrix);
+        //gl.uniformMatrix4fv(app.glsl_programs['dasp'].uniforms.projection_matrix, false, app.projection_matrix);
         
         // Left eye
         gl.uniform1f(app.glsl_programs['dasp'].uniforms.eye, -1.0);
@@ -131,8 +136,8 @@ function render() {
         gl.uniform1i(app.glsl_programs['dasp'].uniforms.depths, 1);
         
         gl.bindVertexArray(app.points_vertex_array.left.vertex_array);
-        //gl.drawElements(gl.POINTS, app.points_vertex_array.left.num_points, gl.UNSIGNED_INT, 0);
-        gl.drawElements(gl.TRIANGLE_STRIP, app.points_vertex_array.left.num_points, gl.UNSIGNED_INT, 0);
+        gl.drawElements(gl.POINTS, app.points_vertex_array.left.num_points, gl.UNSIGNED_INT, 0);
+        //gl.drawElements(gl.TRIANGLE_STRIP, app.points_vertex_array.left.num_points, gl.UNSIGNED_INT, 0);
         gl.bindVertexArray(null);
         
         // Right eye
@@ -146,8 +151,8 @@ function render() {
         gl.uniform1i(app.glsl_programs['dasp'].uniforms.depths, 1);
         
         gl.bindVertexArray(app.points_vertex_array.right.vertex_array);
-        //gl.drawElements(gl.POINTS, app.points_vertex_array.right.num_points, gl.UNSIGNED_INT, 0);
-        gl.drawElements(gl.TRIANGLE_STRIP, app.points_vertex_array.right.num_points, gl.UNSIGNED_INT, 0);
+        gl.drawElements(gl.POINTS, app.points_vertex_array.right.num_points, gl.UNSIGNED_INT, 0);
+        //gl.drawElements(gl.TRIANGLE_STRIP, app.points_vertex_array.right.num_points, gl.UNSIGNED_INT, 0);
         gl.bindVertexArray(null);
         
         gl.useProgram(null);
@@ -229,13 +234,14 @@ function initializeDaspTexture(address) {
     // check for linear interpolation of float texture support
     let float_linear = gl.getExtension('OES_texture_float_linear');
     let float_tex_filter = (float_linear === null) ? gl.NEAREST : gl.LINEAR;
+    let ubyte_tex_filter = gl.LINEAR;
     
     // Create color texture and temporarily fill it with a 1x1 white image
     app.dasp_textures.left.color = gl.createTexture();
     
     gl.bindTexture(gl.TEXTURE_2D, app.dasp_textures.left.color);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, ubyte_tex_filter);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, ubyte_tex_filter);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
@@ -254,8 +260,8 @@ function initializeDaspTexture(address) {
     app.dasp_textures.right.color = gl.createTexture();
     
     gl.bindTexture(gl.TEXTURE_2D, app.dasp_textures.right.color);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, ubyte_tex_filter);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, ubyte_tex_filter);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
@@ -352,8 +358,8 @@ function createPointData(depth_data, delta_depth_threshold) {
     let height = app.dasp_resolution.height;
     let vertices = new Float32Array(2 * width * height);
     let texcoords = new Float32Array(2 * width * height);
-    //let indices = new Uint32Array(width * height);
-    let indices = new Uint32Array((3 * width * (height - 1)) + (3 * (height - 1)));
+    let indices = new Uint32Array(width * height);
+    //let indices = new Uint32Array((3 * width * (height - 1)) + (3 * (height - 1)));
     let face_idx = 0;
     for (i = 0; i < height; i++) {
         for (j = 0; j < width; j++) {
@@ -365,8 +371,9 @@ function createPointData(depth_data, delta_depth_threshold) {
             texcoords[2 * idx + 0] = (j + 0.5) / width;
             texcoords[2 * idx + 1] = (i + 0.5) / height;
             // points
-            //indices[idx] = idx;
+            indices[idx] = idx;
             // triangle strip mesh
+            /*
             if (i < height - 1) {
                 indices[face_idx] = i * width + j;
                 face_idx++;
@@ -382,7 +389,9 @@ function createPointData(depth_data, delta_depth_threshold) {
                 }
                 
             }
+            */
         }
+        /*
         if (i < height - 1) {
             indices[face_idx] = i * width;
             face_idx++;
@@ -391,10 +400,9 @@ function createPointData(depth_data, delta_depth_threshold) {
             indices[face_idx] = PRIMITIVE_RESTART;
             face_idx++;
         }
+        */
     }
-    console.log(indices.length);
-    indices = indices.subarray(0, face_idx);
-    console.log(indices.length);
+    //indices = indices.subarray(0, face_idx);
     
     // Store array of vertex positions in the vertex_position_buffer
     gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
