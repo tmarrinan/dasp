@@ -88,7 +88,7 @@ function initializeGlApp() {
     initializeDaspTexture('images/example_dasp_2k_raw.exr');
     
     // Set camera position
-    vec3.set(app.camera_position, 0.0, 0.0, 0.0);
+    vec3.set(app.camera_position, 0.0, 0.0, -0.15);
     
     // Set view and projection matrix
     mat4.lookAt(app.view_matrix, app.camera_position, vec3.fromValues(-10.0, -0.8, 3.0), vec3.fromValues(0.0, 1.0, 0.0));
@@ -364,10 +364,12 @@ function createPointData(depth_data, delta_depth_threshold) {
     for (i = 0; i < height; i++) {
         for (j = 0; j < width; j++) {
             let idx = i * width + j;
-            let lat = Math.PI * (((i + 0.5) / height) - 0.5);
-            let lon = 2 * Math.PI * (((j + 0.5) / width) - 0.5);
-            vertices[2 * idx + 0] = lon;
-            vertices[2 * idx + 1] = lat;
+            let inclination = Math.PI * (1.0 - ((i + 0.5) / height));
+            let azimuth = 2 * Math.PI * ((j + 0.5) / width);
+            //let lat = Math.PI * (((i + 0.5) / height) - 0.5);
+            //let lon = 2 * Math.PI * (((j + 0.5) / width) - 0.5);
+            vertices[2 * idx + 0] = azimuth;
+            vertices[2 * idx + 1] = inclination;
             texcoords[2 * idx + 0] = (j + 0.5) / width;
             texcoords[2 * idx + 1] = (i + 0.5) / height;
             // points
