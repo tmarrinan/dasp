@@ -6,10 +6,6 @@ precision highp float;
 #define EPSILON 0.000001
 #define NEAR 0.01
 #define FAR 1000.0
-//#define LEFT -M_PI
-//#define RIGHT M_PI
-//#define BOTTOM (-M_PI / 2.0)
-//#define TOP (M_PI / 2.0)
 #define LEFT 0.0
 #define RIGHT (2.0 * M_PI)
 #define BOTTOM M_PI
@@ -36,31 +32,30 @@ void main() {
     // Calculate 3D vector from eye to point
     float azimuth = vertex_position.x;
     float inclination = vertex_position.y;
-    float vertex_depth = texture(depths, vertex_texcoord).r;
-    vec3 pt_dir = vec3(vertex_depth * cos(azimuth) * sin(inclination),
-                       vertex_depth * sin(azimuth) * sin(inclination),
-                       vertex_depth * cos(inclination));
+    float vertex_depth = min(texture(depths, vertex_texcoord).r, FAR - (length(camera_position) + ipd + EPSILON));
+    vec3 pt_dir = vec3(-vertex_depth * sin(azimuth) * sin(inclination),
+                        vertex_depth * cos(inclination),
+                        vertex_depth * cos(azimuth) * sin(inclination));
 
     // Calculate 3D vector from eye to point
     float eye_radius = 0.5 * ipd;
     float eye_azimuth = azimuth + (eye * 0.5 * M_PI);
-    vec3 eye_dir = vec3(eye_radius * cos(eye_azimuth),
-                        eye_radius * sin(eye_azimuth),
-                        0);
+    vec3 eye_dir = vec3(-eye_radius * sin(eye_azimuth),
+                         0,
+                         eye_radius * cos(eye_azimuth));
     
     // Calculate 3D position of point
     vec3 pt = eye_dir + pt_dir;
     
     // Backproject to new 360 panorama
-    vec3 cam = vec3(camera_position.z, -camera_position.x, camera_position.y);
-    vec3 vertex_direction = pt - cam;
+    vec3 vertex_direction = pt - camera_position;
     float magnitude = length(vertex_direction);
-    float theta = acos(vertex_direction.z / magnitude);
-    float phi = ((abs(vertex_direction.x) < EPSILON) ? sign(vertex_direction.y) * M_PI * 0.5 : atan(-vertex_direction.y, -vertex_direction.x)) + M_PI;
+    float theta = acos(vertex_direction.y / magnitude);
+    float phi = ((abs(vertex_direction.z) < EPSILON) ? sign(vertex_direction.y) * -0.5 * M_PI : atan(vertex_direction.x, -vertex_direction.z)) + M_PI;
     gl_Position = ortho_projection * vec4(phi, theta, -magnitude, 1.0);
     
     // Set point size
-    gl_PointSize = 1.0;
+    gl_PointSize = 1.5;
     
     // Pass along texture coordinate
     texcoord = vertex_texcoord;

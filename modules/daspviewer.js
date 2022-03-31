@@ -79,7 +79,8 @@ function initializeGlApp() {
     // Set drawing area to be the entire framebuffer
     gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
     // Set the background color to black
-    gl.clearColor(0.533, 0.745, 0.922, 1.0);  // rgb(136, 190, 235)
+    //gl.clearColor(0.533, 0.745, 0.922, 1.0);  // rgb(136, 190, 235)
+    gl.clearColor(0.0, 0.0, 0.0, 1.0);
     // Enable z-buffer for visible surface determination
     gl.enable(gl.DEPTH_TEST);
     
@@ -88,7 +89,7 @@ function initializeGlApp() {
     initializeDaspTexture('images/example_dasp_2k_raw.exr');
     
     // Set camera position
-    vec3.set(app.camera_position, 0.0, 0.0, -0.15);
+    vec3.set(app.camera_position, 0.0, 0.0, 0.0);
     
     // Set view and projection matrix
     mat4.lookAt(app.view_matrix, app.camera_position, vec3.fromValues(-10.0, -0.8, 3.0), vec3.fromValues(0.0, 1.0, 0.0));
