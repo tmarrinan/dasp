@@ -6,6 +6,10 @@ def main():
     device_number = 0
     resolution_x = 2048
     resolution_y = 1024
+    ipd = 0.065
+    parallax_diameter = 0.25
+    camera_center = (0.0, 0.0, 1.6)
+    camera_right_vec = createCameraVector([1.0, 0.5, 1.0], ipd, parallax_diameter)
     
     # remove default objects
     bpy.ops.object.select_all(action='SELECT')
@@ -25,6 +29,27 @@ def main():
     cycles_prefs.get_devices()
     selectRenderDevice(cycles_prefs, device_type, device_number)
     
+    # add 2 pano cameras
+    cam1 = createPanoCamera('CameraL')
+    cam1.location = (camera_center[0] - camera_right_vec[0], camera_center[1] - camera_right_vec[1], camera_center[2] - camera_right_vec[2])
+    cam1.rotation_euler = (math.pi / 2, 0.0, 0.0)
+    bpy.context.collection.objects.link(cam1)
+    
+    cam2 = createPanoCamera('CameraR')
+    cam2.location = (camera_center[0] + camera_right_vec[0], camera_center[1] + camera_right_vec[1], camera_center[2] + camera_right_vec[2])
+    cam2.rotation_euler = (math.pi / 2, 0.0, 0.0)
+    bpy.context.collection.objects.link(cam2)
+    
+    bpy.context.scene.camera = cam1
+    
+    # enable multiview to render both cameras
+    bpy.context.scene.render.use_multiview = True
+    bpy.context.scene.render.views_format = 'MULTIVIEW'
+    # TODO:
+    #  - uncheck 'left' and 'right' views
+    #  - add two new views (make sure 'Camera Suffix' equals the suffix of each camera's name (e.g. CameraL would have suffix L))
+    
+    """
     # add camera
     cam_data = bpy.data.cameras.new('Camera')
     cam_data.type = 'PANO'
@@ -46,6 +71,7 @@ def main():
     bpy.context.scene.render.resolution_y = resolution_y
     bpy.context.scene.render.image_settings.views_format = 'STEREO_3D'
     bpy.context.scene.render.image_settings.stereo_3d_format.display_mode = 'TOPBOTTOM'
+    """
     
 def selectRenderDevice(cycles_prefs, device_type, device_number):
     device_count = 0
@@ -62,5 +88,20 @@ def selectRenderDevice(cycles_prefs, device_type, device_number):
         print(f'APP> Error: could not find {device_type} device {device_number}')
         exit(1)
     print(f'APP> Cycles Render Engine using: {device_type} device {device_number}')
-    
+
+def createCameraVector(direction, ipd, parallax_diameter):
+    magnitude = math.sqrt(direction[0] ** 2 + direction[1] ** 2 + direction[2] **2)
+    length = 0.5 * (ipd + parallax_diameter)
+    scale = length / magnitude
+    return (scale * direction[0], scale * direction[1], scale * direction[2])
+
+def createPanoCamera(name):
+    cam_data = bpy.data.cameras.new(name)
+    cam_data.type = 'PANO'
+    cam_data.clip_start = 0.25
+    cam_data.clip_end = 250.0
+    cam_data.cycles.panorama_type = 'EQUIRECTANGULAR'
+    cam = bpy.data.objects.new(name, cam_data)
+    return cam
+
 main()
