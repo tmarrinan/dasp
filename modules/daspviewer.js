@@ -86,7 +86,7 @@ function initializeGlApp() {
     
     // Load DASP image
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-    initializeDaspTexture('images/example_dasp_2k_raw.exr');
+    initializeDaspTexture('images/example_dasp_2k_zip.exr');
     
     // Set camera position
     vec3.set(app.camera_position, 0.0, 0.0, 0.0);
@@ -306,7 +306,7 @@ function updateDaspTexture(exr) {
     
     gl.bindTexture(gl.TEXTURE_2D, app.dasp_textures.left.depth);
     if (exr.image_buffers['Depth.left.V'].type === 'half') {
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, app.dasp_resolution.width, app.dasp_resolution.height, 0, gl.RED, gl.HALF_FLOAT, exr.image_buffers['Depth.left.V'].buffer);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, app.dasp_resolution.width, app.dasp_resolution.height, 0, gl.RED, gl.HALF_FLOAT, new Uint16Array(exr.image_buffers['Depth.left.V'].buffer.buffer));
     }
     else { // 'float'
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, app.dasp_resolution.width, app.dasp_resolution.height, 0, gl.RED, gl.FLOAT, exr.image_buffers['Depth.left.V'].buffer);
@@ -328,7 +328,7 @@ function updateDaspTexture(exr) {
     
     gl.bindTexture(gl.TEXTURE_2D, app.dasp_textures.right.depth);
     if (exr.image_buffers['Depth.right.V'].type === 'half') {
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, app.dasp_resolution.width, app.dasp_resolution.height, 0, gl.RED, gl.HALF_FLOAT, exr.image_buffers['Depth.right.V'].buffer);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, app.dasp_resolution.width, app.dasp_resolution.height, 0, gl.RED, gl.HALF_FLOAT, new Uint16Array(exr.image_buffers['Depth.right.V'].buffer.buffer));
     }
     else { // 'float'
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, app.dasp_resolution.width, app.dasp_resolution.height, 0, gl.RED, gl.FLOAT, exr.image_buffers['Depth.right.V'].buffer);

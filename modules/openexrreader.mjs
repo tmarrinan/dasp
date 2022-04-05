@@ -98,37 +98,9 @@ class OpenExrReader {
                 this.#readPixelDataRaw(scan_line_y);
             }
             else if (this.attributes.compression.value === 'zip' || this.attributes.compression.value === 'zips') {
-                this.#readPixelDataZip(scan_line_y);
+                this.#readPixelDataZip(scan_line_y, scan_line_size);
             }
         }
-        
-        /*
-        this.#read_idx = this.offset_table[0];
-        let first_line = this.#readInt();
-        let first_size = this.#readInt();
-        let pixel_data = null;
-        if (this.attributes.compression.value === 'none') {
-            pixel_data = new Float32Array(this.exr_buffer.buffer.slice(this.#read_idx, this.#read_idx + first_size));
-        }
-        else if (this.attributes.compression.value === 'zip') { // or zips (ZIP with 1 scan line at a time)
-            // deflate
-            let deflated = zlib_inflate(this.exr_buffer.buffer.slice(this.#read_idx, this.#read_idx + first_size));
-            // reconstruct
-            for (i = 1; i < deflated.length; i++) {
-                let d = deflated[i-1] + deflated[i] - 128;
-                deflated[i] = d;
-            }
-            // interleave
-            let half = deflated.length / 2;
-            let uncompressed = new Uint8Array(deflated.length);
-            for (i = 0; i < half; i++) {
-                uncompressed[2 * i] = deflated[i];
-                uncompressed[2 * i + 1] = deflated[half + i];
-            }
-            pixel_data = new Float32Array(uncompressed.buffer);
-        }
-        //console.log(pixel_data);
-        */
     }
     
     #readAttrib() {
@@ -411,21 +383,20 @@ class OpenExrReader {
     
     #readPixelDataRaw(scan_line) {
         let i;
-        let width = this.attributes.dataWindow.value[2] - this.attributes.dataWindow.value[0] + 1;
-        let offset = scan_line * width;
+        let offset = scan_line * this.width;
         for (i = 0; i < this.attributes.channels.value.length; i++) {
             let pixel_data, size;
             let channel = this.attributes.channels.value[i];
             if (channel.pixel_type === 'uint') {
-                size = 4 * this.#scan_lines_per_block * width;
+                size = 4 * this.width;
                 pixel_data = new Uint32Array(this.exr_buffer.buffer.slice(this.#read_idx, this.#read_idx + size));
             }
             else if (channel.pixel_type === 'half') {
-                size = 2 * this.#scan_lines_per_block * width;
+                size = 2 * this.width;
                 pixel_data = new Float16Array(this.exr_buffer.buffer.slice(this.#read_idx, this.#read_idx + size));
             }
             else if (channel.pixel_type === 'float') {
-                size = 4 * this.#scan_lines_per_block * width;
+                size = 4 * this.width;
                 pixel_data = new Float32Array(this.exr_buffer.buffer.slice(this.#read_idx, this.#read_idx + size));
             }
             this.#read_idx += size;
@@ -433,8 +404,50 @@ class OpenExrReader {
         }
     }
     
-    #readPixelDataZip() {
+    #readPixelDataZip(scan_line, scan_line_size) {    
+        let i, j;
         
+        // deflate
+        let deflated = zlib_inflate(this.exr_buffer.buffer.slice(this.#read_idx, this.#read_idx + scan_line_size));
+        // reconstruct
+        for (i = 1; i < deflated.length; i++) {
+            let d = deflated[i-1] + deflated[i] - 128;
+            deflated[i] = d;
+        }
+        // interleave
+        let half = deflated.length / 2;
+        let uncompressed = new Uint8Array(deflated.length);
+        for (i = 0; i < half; i++) {
+            uncompressed[2 * i] = deflated[i];
+            uncompressed[2 * i + 1] = deflated[half + i];
+        }
+        
+        // copy to image buffers
+        let buffer_idx = 0;
+        let offset = scan_line * this.width;
+        for (i = 0; i < this.#scan_lines_per_block; i++) {
+            for (j = 0; j < this.attributes.channels.value.length; j++) {
+                let pixel_data, size;
+                let channel = this.attributes.channels.value[j];
+                if (channel.pixel_type === 'uint') {
+                    size = 4 * this.width;
+                    pixel_data = new Uint32Array(uncompressed.buffer.slice(buffer_idx, buffer_idx + size));
+                }
+                else if (channel.pixel_type === 'half') {
+                    size = 2 * this.width;
+                    pixel_data = new Float16Array(uncompressed.buffer.slice(buffer_idx, buffer_idx + size));
+                }
+                else if (channel.pixel_type === 'float') {
+                    size = 4 * this.width;
+                    pixel_data = new Float32Array(uncompressed.buffer.slice(buffer_idx, buffer_idx + size));
+                }
+                buffer_idx += size;
+                this.image_buffers[channel.name].buffer.set(pixel_data, offset);
+            }
+            offset += this.width;
+        }
+        
+        this.#read_idx += scan_line_size;
     }
 }
 
