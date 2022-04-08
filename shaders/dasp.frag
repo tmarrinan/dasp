@@ -2,9 +2,9 @@
 
 precision mediump float;
 
-uniform sampler2D image;
-
 in vec2 texcoord;
+
+uniform sampler2D image;
 
 out vec4 FragColor;
 

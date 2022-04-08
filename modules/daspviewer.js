@@ -27,6 +27,8 @@ function init() {
     app.previous_time = 0;
     app.frame_count = 0;
     
+    createRenderTexture(2048, 1024);
+    
     // Download and compile shaders into GPU programs
     let dasp_vs = getTextFile('shaders/dasp.vert');
     let dasp_fs = getTextFile('shaders/dasp.frag');
@@ -276,6 +278,10 @@ function initializeDaspTexture(address) {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, 1, 1, 0, gl.RED, gl.FLOAT, depths);
     
+    
+    // Create color and depth textures to render new view into
+    
+    
     gl.bindTexture(gl.TEXTURE_2D, null);
     
     // Download the actual image
@@ -338,6 +344,44 @@ function updateDaspTexture(exr) {
     
     // Start render loop - TODO: change this
     idle();
+}
+
+function createRenderTexture(width, height) {
+    let float_linear = gl.getExtension('OES_texture_float_linear');
+    let float_tex_filter = (float_linear === null) ? gl.NEAREST : gl.LINEAR;
+    let ubyte_tex_filter = gl.LINEAR;
+    
+    let color_texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, color_texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, ubyte_tex_filter);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, ubyte_tex_filter);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    
+    let depth_texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, depth_texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, float_tex_filter);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, float_tex_filter);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_FUNC, gl.LEQUAL);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_MODE, gl.NONE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH24_STENCIL8, width, height, 0, gl.DEPTH_STENCIL, gl.UNSIGNED_INT_24_8, null);
+    
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    
+    let framebuffer = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, color_texture, 0);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.TEXTURE_2D, depth_texture, 0);
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+    
+    gl.viewport(0, 0, width, height);
+    
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    
+    return {framebuffer: framebuffer, color_texture: color_texture, depth_texture: depth_texture};
 }
 
 function createPointData(depth_data, delta_depth_threshold) {
