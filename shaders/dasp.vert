@@ -54,8 +54,8 @@ void main() {
     float phi = ((abs(vertex_direction.z) < EPSILON) ? sign(vertex_direction.y) * -0.5 * M_PI : atan(vertex_direction.x, -vertex_direction.z)) + M_PI;
     gl_Position = ortho_projection * vec4(phi, theta, -magnitude, 1.0);
     
-    // Set point size
-    gl_PointSize = 1.5;
+    // Set point size (1.5?)
+    gl_PointSize = 1.0;
     
     // Pass along texture coordinate
     texcoord = vertex_texcoord;

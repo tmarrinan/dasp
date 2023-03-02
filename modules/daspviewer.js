@@ -10,7 +10,7 @@ function init() {
     canvas = document.getElementById('render');
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
-    gl = canvas.getContext('webgl2');//, {antialias: false});
+    gl = canvas.getContext('webgl2'); //, {antialias: false});
     if (!gl) {
         alert('Unable to initialize WebGL 2. Your browser may not support it.');
     }
@@ -35,6 +35,11 @@ function init() {
     let texture_vs = getTextFile('shaders/texture.vert');
     let texture_fs = getTextFile('shaders/texture.frag');
     
+    
+    //TEST
+    getDepthExr('images/test_t001400_p00_0001.exr').then((exr) => {
+        console.log(exr);
+    });
     
     // TEST CODE for unzipping depth files
     //getDepthZip('images/Depth0001_L.exr').then((data) => {
@@ -89,6 +94,7 @@ function initializeGlApp() {
     // Load DASP image
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
     initializeDaspTexture('images/example_dasp_2k_zip.exr');
+    //initializeDaspTexture('images/example_dasp_noaa.exr');
     
     // Set camera position
     vec3.set(app.camera_position, 0.0, 0.0, 0.0);
